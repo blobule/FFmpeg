@@ -12349,6 +12349,17 @@ Xmap and Ymap input video streams must be of same dimensions. Output video strea
 will have Xmap/Ymap video stream dimensions.
 Xmap and Ymap input video streams are 16bit depth, single channel.
 
+@table @option
+@item bilinear
+Set mode bilinear interpolation mode.
+In this mode, the Xmap and Ymap intensity range are used to cover the whole image.
+In Xmap, intensity 0 is leftmost pixel, and intensity 255 (or 65535 in 16 bit) is right most pixel.
+This allows subpixel accuracy when using 16bit images.
+Assuming the images have an intensity range 0 to 65535, then the mapping is
+source x = Xmap(x,y)/65536*(source_width)
+source y = Ymap(x,y)/65536*(source_width)
+@end table
+
 @section removegrain
 
 The removegrain filter is a spatial denoiser for progressive video.
