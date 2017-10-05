@@ -47,6 +47,7 @@
 
 typedef struct RemapContext {
     const AVClass *class;
+    int use_bilinear;
     int nb_planes;
     int nb_components;
     int step;
@@ -61,6 +62,7 @@ typedef struct RemapContext {
 #define FLAGS AV_OPT_FLAG_FILTERING_PARAM|AV_OPT_FLAG_VIDEO_PARAM
 
 static const AVOption remap_options[] = {
+    { "bilinear", "lut is mapping input resolution to 0..65535, with 0 = direct mapping", OFFSET(use_bilinear), AV_OPT_TYPE_BOOL, {.i64=0}, 0, 1, FLAGS },
     { NULL }
 };
 
@@ -115,6 +117,67 @@ fail:
     av_freep(&map_formats);
     return ret;
 }
+
+/**
+ * remap_planar algorithm expects planes of same size
+ * pixels are copied from source to target using :
+ * Target_frame[y][x] = Source_frame[ ymap[y][x] ][ [xmap[y][x] ];
+ */
+static void remap_planar_interpolate(RemapContext *s, const AVFrame *in,
+                         const AVFrame *xin, const AVFrame *yin,
+                         AVFrame *out)
+{
+    const int xlinesize = xin->linesize[0] / 2;
+    const int ylinesize = yin->linesize[0] / 2;
+    int x , y, plane;
+
+    for (plane = 0; plane < s->nb_planes ; plane++) {
+        uint8_t *dst         = out->data[plane];
+        const int dlinesize  = out->linesize[plane];
+        const uint8_t *src   = in->data[plane];
+        const int slinesize  = in->linesize[plane];
+        const uint16_t *xmap = (const uint16_t *)xin->data[0];
+        const uint16_t *ymap = (const uint16_t *)yin->data[0];
+
+        int a00,a10,a01,a11;
+
+        for (y = 0; y < out->height; y++) {
+            for (x = 0; x < out->width; x++) {
+                if( xmap[x]==0 || ymap[x]==0 ) { dst[x]=0;continue; }
+                // subpixel position
+                float px=(float)xmap[x]/65536.0*in->width;
+                float py=(float)ymap[x]/65536.0*in->height;
+                // integer part
+                int ipx=(int)px;
+                int ipy=(int)py;
+                // fractional part
+                float fpx=px-ipx;
+                float fpy=py-ipy;
+                // interpolation bilineaire
+                // AUCUN CHECK de depassement!!!
+                a00=a01=a10=a11=src[ipy*slinesize+ipx];
+                if( ipx+1<in->width ) {
+                    a10=src[ipy*slinesize+ipx+1];
+                    if( ipy+1<in->height ) {
+                        a11=src[(ipy+1)*slinesize+ipx+1];
+                    }
+                }
+                if( ipy+1<in->height ) {
+                    a01=src[(ipy+1)*slinesize+ipx];
+                }
+
+                //printf("%4d %4d %4d %4d : %4d %4d %4.3f %4.3f\n",a00,a10,a01,a11,ipx,ipy,fpx,fpy);
+
+                dst[x] = a00*(1-fpx)*(1-fpy)+a10*fpx*(1-fpy)+a01*(1-fpx)*fpy+a11*fpx*fpy;
+
+            }
+            dst  += dlinesize;
+            xmap += xlinesize;
+            ymap += ylinesize;
+        }
+    }
+}
+
 
 /**
  * remap_planar algorithm expects planes of same size
@@ -260,9 +323,14 @@ static int config_input(AVFilterLink *inlink)
     s->nb_planes = av_pix_fmt_count_planes(inlink->format);
     s->nb_components = desc->nb_components;
 
+
     if (desc->comp[0].depth == 8) {
         if (s->nb_planes > 1 || s->nb_components == 1) {
-            s->remap = remap_planar;
+            if( s->use_bilinear ) {
+                s->remap = remap_planar_interpolate;
+            }else{
+                s->remap = remap_planar;
+            }
         } else {
             s->remap = remap_packed;
         }
@@ -275,6 +343,8 @@ static int config_input(AVFilterLink *inlink)
     }
 
     s->step = av_get_padded_bits_per_pixel(desc) >> 3;
+    printf("*** depth=%d nbplanes=%d nbcomponents=%d padded_bpp=%d ***\n",desc->comp[0].depth,s->nb_planes,s->nb_components,av_get_padded_bits_per_pixel(desc));
+    printf("*** option use_bilinear = %d\n",s->use_bilinear);
     return 0;
 }
 
