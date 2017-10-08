@@ -167,6 +167,9 @@ typedef struct MixContext {
     int observe_done;            /**< done with accumulating samples */
     int observe_reference;      /* input de reference pour le DP */
 
+    float observe_duration;     /* option: duration in ms, (n=duration/1000*samplerate) */
+    float observe_precision;    /* option: precision in ms, (acc=precision/1000*samplerate) */
+
     float *observe_max;          /** [nbs] current maximum **/
     int *observe_samples;        /** [nbs] samples currently accounted in max **/
     int *observe_cur;            /** [nbs] current value for this input, in dp table */
@@ -190,8 +193,8 @@ typedef struct MixContext {
 #define F AV_OPT_FLAG_FILTERING_PARAM
 static const AVOption async_options[] = {
     { "inputs", "Number of inputs.",
-            OFFSET(nb_inputs), AV_OPT_TYPE_INT, { .i64 = 2 }, 1, 1024, A|F },
-    { "duration", "How to determine the end-of-stream.",
+            OFFSET(nb_inputs), AV_OPT_TYPE_INT, { .i64 = 2 }, 2, 1024, A|F },
+    { "xxxduration", "How to determine the end-of-stream.",
             OFFSET(duration_mode), AV_OPT_TYPE_INT, { .i64 = DURATION_LONGEST }, 0,  2, A|F, "duration" },
         { "longest",  "Duration of longest input.",  0, AV_OPT_TYPE_CONST, { .i64 = DURATION_LONGEST  }, 0, 0, A|F, "duration" },
         { "shortest", "Duration of shortest input.", 0, AV_OPT_TYPE_CONST, { .i64 = DURATION_SHORTEST }, 0, 0, A|F, "duration" },
@@ -199,10 +202,10 @@ static const AVOption async_options[] = {
     { "dropout_transition", "Transition time, in seconds, for volume "
                             "renormalization when an input stream ends.",
             OFFSET(dropout_transition), AV_OPT_TYPE_FLOAT, { .dbl = 2.0 }, 0, INT_MAX, A|F },
-    { "samples", "Number of samples of observation for offset computation",
-            OFFSET(observe_n), AV_OPT_TYPE_INT, { .i64 = 6000 }, 100, 100000, A|F },
-    { "precision", "Precision of offset computation, measured in audio samples (4800=0.1sec @ 48khz)",
-            OFFSET(observe_acc), AV_OPT_TYPE_INT, { .i64 = 480 }, 1, 100000, A|F },
+    { "duration", "How much audio to use for matching, in seconds",
+            OFFSET(observe_duration), AV_OPT_TYPE_FLOAT, { .dbl = 10.0 }, 1.0, 1000.0, A|F },
+    { "precision", "Precision of offset computation, measured milliseconds",
+            OFFSET(observe_precision), AV_OPT_TYPE_FLOAT, { .dbl = 10.0 }, 0.1, 10000.0, A|F },
     { "ref", "Reference input stream for matching",
             OFFSET(observe_reference), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1000, A|F },
     { NULL }
@@ -240,9 +243,13 @@ static void calculate_scales(MixContext *s, int nb_samples)
  */
 static void observe_init(MixContext *s) {
     int i;
-    printf("observe inputs=%d duration=%dx%d=%d audio samples, precision=%d audio samples rate=%d\n",s->nb_inputs,
-            s->observe_n,s->observe_acc,
-            s->observe_n*s->observe_acc,s->observe_acc,
+
+    s->observe_acc=(int)(s->observe_precision/1000.0*s->sample_rate);
+    s->observe_n=(int)(s->observe_duration*s->sample_rate)/s->observe_acc;
+
+    printf("observe inputs=%d duration=%f sec = %d readingss, precision=%f ms = %d audio samples per reading, rate=%d\n",s->nb_inputs,
+            s->observe_duration,s->observe_n,
+            s->observe_precision,s->observe_acc,
             s->sample_rate);
     printf("observe inputs=%d duration=%.2f s, precision=%d ms rate=%d\n",s->nb_inputs,
             (double)s->observe_n*s->observe_acc/s->sample_rate,
@@ -284,18 +291,19 @@ static void observe_init(MixContext *s) {
 // if cur[0] and cur[1] = _n, we are done!
 //
 //
-static void observe_compute_dp(MixContext *s,int a,int b)
+static float observe_compute_dp(MixContext *s,int a,int b)
 {
     int i,j,n,p;
     float *dp=s->observe_dp;
     float occlusion=0.01;
+    float sol;
     int *h;
     n=s->observe_n;
     p=s->nb_inputs;
     
     if( s->observe_cur[a]<n || s->observe_cur[b]<n ) {
         printf("... not enough samples for dp!!\n");
-        return;
+        return(-99999999999.0f);
     }
 
     printf("COMPUTING DP for input %d and %d\n",a,b);
@@ -359,8 +367,11 @@ static void observe_compute_dp(MixContext *s,int a,int b)
         for(i=-n;i<=n;i++) {
             if( h[i+n]>h[ibest+n] ) ibest=i;
         }
+
+        sol=(float)(ibest*s->observe_acc)/s->sample_rate;
+
         printf("solution for input %2d and %2d : delta=%5d = %8d +/- %8d samples\n",a,b,ibest,ibest*s->observe_acc,s->observe_acc/2);
-        for(i=-5;i<=5;i++) { printf("histo %4d (%8dms +/- %5dms) : %6d %s\n",i+ibest,(((i+ibest)*s->observe_acc)*1000)/s->sample_rate,(s->observe_acc*1000/2)/s->sample_rate,h[i+ibest+n],i==0?"<====":""); }
+        for(i=-5;i<=5;i++) { printf("histo %2d-%2d  %4d (%8dms +/- %5dms) : %6d %s\n",a,b,i+ibest,(((i+ibest)*s->observe_acc)*1000)/s->sample_rate,(s->observe_acc*1000/2)/s->sample_rate,h[i+ibest+n],i==0?"<====":""); }
     }
 
 
@@ -378,6 +389,7 @@ static void observe_compute_dp(MixContext *s,int a,int b)
         printf("updating dp(%d,%d) with val=%f\n",i0,i1,val);
     }
     ***/
+    return(sol);
 }
 
 
@@ -425,9 +437,18 @@ static void observe_accumulate(MixContext *s,int in,float *a,int len) {
                         **/
                         // match tout avec ref
                         int a;
+                        float *sols=(float *)malloc(s->nb_inputs*sizeof(float));
+                        float maxoff=0.0;
                         for(a=0;a<s->nb_inputs;a++) {
-                            if( a!=s->observe_reference ) observe_compute_dp(s,s->observe_reference,a);
+                            if( a!=s->observe_reference ) {
+                                sols[a]=observe_compute_dp(s,s->observe_reference,a);
+                            }else sols[a]=0.0f;
+                            if( sols[a]>maxoff ) maxoff=sols[a];
                         }
+                        for(a=0;a<s->nb_inputs;a++) {
+                            printf("SYNC source %2d : %8.1f ms, use -ss %12.4f\n",a,sols[a]*1000.0,-sols[a]+maxoff);
+                        }
+                        free(sols);
                         return;
                     }
                 }
@@ -806,7 +827,7 @@ static const AVFilterPad avfilter_af_async_outputs[] = {
 
 AVFilter ff_af_async = {
     .name           = "async",
-    .description    = NULL_IF_CONFIG_SMALL("Audio mixing."),
+    .description    = NULL_IF_CONFIG_SMALL("Audio sync."),
     .priv_size      = sizeof(MixContext),
     .priv_class     = &async_class,
     .init           = init,

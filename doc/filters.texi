@@ -1195,6 +1195,7 @@ ffmpeg -i input.mkv -filter_complex "[0:1][0:2][0:3][0:4][0:5][0:6] amerge=input
 @end example
 @end itemize
 
+
 @section amix
 
 Mixes multiple audio inputs into a single output.
@@ -1237,6 +1238,43 @@ The transition time, in seconds, for volume renormalization when an input
 stream ends. The default value is 2 seconds.
 
 @end table
+
+
+
+@section async
+
+Compute temporal shift between audio sources. Relies on the audio signal itself,
+matched using dynamic programming over the signal envelope. Multiple sources can
+be provided, but only one is used as a reference.
+
+For example
+@example
+ffmpeg -i INPUT1 -i INPUT2 -i INPUT3 -filter_complex async=inputs=3:duration=20:precision=10:ref=0 OUTPUT
+@end example
+will sync all inputs with INPUT1 (ref 0), using the first 20 seconds of audio, matching with a precision of 10ms.
+
+It accepts the following parameters:
+@table @option
+
+@item duration
+Length of audio signal to use for matching. Default is 10sec.
+
+@item precision
+The precision of shift estimation, in ms. Default is 10ms.
+The memory required for matching is (duration/precision)^2*8 bytes, so the precision
+should be lowered when increasing the duration. Ex: a duration of 10 seconds at a precision
+of 10ms requires 8mb of memory, while a precision of 1ms 800mb.
+
+@item ref
+Reference source for the shift. All other sources will be matched to this one. Default to 0, the first source.
+
+@end table
+
+
+
+
+
+
 
 @section anequalizer
 
