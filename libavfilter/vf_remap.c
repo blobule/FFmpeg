@@ -143,7 +143,7 @@ static void remap_planar_interpolate(RemapContext *s, const AVFrame *in,
 
         for (y = 0; y < out->height; y++) {
             for (x = 0; x < out->width; x++) {
-                if( xmap[x]==0 || ymap[x]==0 ) { dst[x]=0;continue; }
+                //if( xmap[x]==0 || ymap[x]==0 ) { dst[x]=0;continue; }
                 // subpixel position
                 float px=(float)xmap[x]/65536.0*in->width;
                 float py=(float)ymap[x]/65536.0*in->height;

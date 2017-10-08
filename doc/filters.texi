@@ -12360,6 +12360,10 @@ source x = Xmap(x,y)/65536*(source_width)
 source y = Ymap(x,y)/65536*(source_width)
 @end table
 
+@subsection Examples
+
+blub
+
 @section removegrain
 
 The removegrain filter is a spatial denoiser for progressive video.
