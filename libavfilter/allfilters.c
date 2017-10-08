@@ -61,6 +61,7 @@ static void register_all(void)
     REGISTER_FILTER(AMERGE,         amerge,         af);
     REGISTER_FILTER(AMETADATA,      ametadata,      af);
     REGISTER_FILTER(AMIX,           amix,           af);
+    REGISTER_FILTER(ASYNC,          async,          af);
     REGISTER_FILTER(ANEQUALIZER,    anequalizer,    af);
     REGISTER_FILTER(ANULL,          anull,          af);
     REGISTER_FILTER(APAD,           apad,           af);
