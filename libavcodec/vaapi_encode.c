@@ -399,14 +399,14 @@ static int vaapi_encode_issue(AVCodecContext *avctx,
         err = AVERROR(EIO);
         // vaRenderPicture() has been called here, so we should not destroy
         // the parameter buffers unless separate destruction is required.
-        if (ctx->hwctx->driver_quirks &
+        if (CONFIG_VAAPI_1 || ctx->hwctx->driver_quirks &
             AV_VAAPI_DRIVER_QUIRK_RENDER_PARAM_BUFFERS)
             goto fail;
         else
             goto fail_at_end;
     }
 
-    if (ctx->hwctx->driver_quirks &
+    if (CONFIG_VAAPI_1 || ctx->hwctx->driver_quirks &
         AV_VAAPI_DRIVER_QUIRK_RENDER_PARAM_BUFFERS) {
         for (i = 0; i < pic->nb_param_buffers; i++) {
             vas = vaDestroyBuffer(ctx->hwctx->display,
@@ -1036,6 +1036,8 @@ static av_cold int vaapi_encode_config_attributes(AVCodecContext *avctx)
             // Unfortunately we have to treat this as "don't know" and hope
             // for the best, because the Intel MJPEG encoder returns this
             // for all the interesting attributes.
+            av_log(avctx, AV_LOG_DEBUG, "Attribute (%d) is not supported.\n",
+                   attr[i].type);
             continue;
         }
         switch (attr[i].type) {

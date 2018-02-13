@@ -624,16 +624,20 @@ FF_ENABLE_DEPRECATION_WARNINGS
         s->chroma_planes = 1;
         s->bits_per_raw_sample = 8;
         break;
+    case AV_PIX_FMT_RGBA64:
+        s->colorspace = 1;
+        s->transparency = 1;
+        s->chroma_planes = 1;
+        s->bits_per_raw_sample = 16;
+        s->use32bit = 1;
+        s->version = FFMAX(s->version, 1);
+        break;
     case AV_PIX_FMT_RGB48:
         s->colorspace = 1;
         s->chroma_planes = 1;
         s->bits_per_raw_sample = 16;
         s->use32bit = 1;
         s->version = FFMAX(s->version, 1);
-        if (avctx->strict_std_compliance > FF_COMPLIANCE_EXPERIMENTAL) {
-            av_log(avctx, AV_LOG_ERROR, "16bit RGB is experimental and under development, only use it for experiments\n");
-            return AVERROR_INVALIDDATA;
-        }
         break;
     case AV_PIX_FMT_0RGB32:
         s->colorspace = 1;
@@ -653,18 +657,16 @@ FF_ENABLE_DEPRECATION_WARNINGS
         if (!avctx->bits_per_raw_sample && !s->bits_per_raw_sample)
             s->bits_per_raw_sample = 14;
     case AV_PIX_FMT_GBRP16:
+    case AV_PIX_FMT_GBRAP16:
         if (!avctx->bits_per_raw_sample && !s->bits_per_raw_sample)
             s->bits_per_raw_sample = 16;
         else if (!s->bits_per_raw_sample)
             s->bits_per_raw_sample = avctx->bits_per_raw_sample;
+        s->transparency = desc->nb_components == 4 || desc->nb_components == 2;
         s->colorspace = 1;
         s->chroma_planes = 1;
         if (s->bits_per_raw_sample >= 16) {
             s->use32bit = 1;
-            if (avctx->strict_std_compliance > FF_COMPLIANCE_EXPERIMENTAL) {
-                av_log(avctx, AV_LOG_ERROR, "16bit RGB is experimental and under development, only use it for experiments\n");
-                return AVERROR_INVALIDDATA;
-            }
         }
         s->version = FFMAX(s->version, 1);
         break;
@@ -754,7 +756,10 @@ FF_ENABLE_DEPRECATION_WARNINGS
     if (!s->chroma_planes && s->version > 3)
         s->plane_count--;
 
-    avcodec_get_chroma_sub_sample(avctx->pix_fmt, &s->chroma_h_shift, &s->chroma_v_shift);
+    ret = av_pix_fmt_get_chroma_sub_sample (avctx->pix_fmt, &s->chroma_h_shift, &s->chroma_v_shift);
+    if (ret)
+        return ret;
+
     s->picture_number = 0;
 
     if (avctx->flags & (AV_CODEC_FLAG_PASS1 | AV_CODEC_FLAG_PASS2)) {
@@ -1029,9 +1034,10 @@ static int encode_slice(AVCodecContext *c, void *arg)
     const int ps     = av_pix_fmt_desc_get(c->pix_fmt)->comp[0].step;
     int ret;
     RangeCoder c_bak = fs->c;
-    const uint8_t *planes[3] = {p->data[0] + ps*x + y*p->linesize[0],
+    const uint8_t *planes[4] = {p->data[0] + ps*x + y*p->linesize[0],
                                 p->data[1] ? p->data[1] + ps*x + y*p->linesize[1] : NULL,
-                                p->data[2] ? p->data[2] + ps*x + y*p->linesize[2] : NULL};
+                                p->data[2] ? p->data[2] + ps*x + y*p->linesize[2] : NULL,
+                                p->data[3] ? p->data[3] + ps*x + y*p->linesize[3] : NULL};
 
     fs->slice_coding_mode = 0;
     if (f->version > 3) {
@@ -1323,6 +1329,7 @@ AVCodec ff_ffv1_encoder = {
         AV_PIX_FMT_YA8,
         AV_PIX_FMT_GRAY10, AV_PIX_FMT_GRAY12,
         AV_PIX_FMT_GBRP16, AV_PIX_FMT_RGB48,
+        AV_PIX_FMT_GBRAP16, AV_PIX_FMT_RGBA64,
         AV_PIX_FMT_NONE
 
     },

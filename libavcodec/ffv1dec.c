@@ -336,14 +336,16 @@ static int decode_slice(AVCodecContext *c, void *arg)
          decode_plane(fs, p->data[0] + ps*x + y*p->linesize[0]    , width, height, p->linesize[0], 0, 2);
          decode_plane(fs, p->data[0] + ps*x + y*p->linesize[0] + 1, width, height, p->linesize[0], 1, 2);
     } else if (f->use32bit) {
-        uint8_t *planes[3] = { p->data[0] + ps * x + y * p->linesize[0],
+        uint8_t *planes[4] = { p->data[0] + ps * x + y * p->linesize[0],
                                p->data[1] + ps * x + y * p->linesize[1],
-                               p->data[2] + ps * x + y * p->linesize[2] };
+                               p->data[2] + ps * x + y * p->linesize[2],
+                               p->data[3] + ps * x + y * p->linesize[3] };
         decode_rgb_frame32(fs, planes, width, height, p->linesize);
     } else {
-        uint8_t *planes[3] = { p->data[0] + ps * x + y * p->linesize[0],
+        uint8_t *planes[4] = { p->data[0] + ps * x + y * p->linesize[0],
                                p->data[1] + ps * x + y * p->linesize[1],
-                               p->data[2] + ps * x + y * p->linesize[2] };
+                               p->data[2] + ps * x + y * p->linesize[2],
+                               p->data[3] + ps * x + y * p->linesize[3] };
         decode_rgb_frame(fs, planes, width, height, p->linesize);
     }
     if (fs->ac != AC_GOLOMB_RICE && f->version > 2) {
@@ -694,6 +696,10 @@ static int read_header(FFV1Context *f)
             f->avctx->pix_fmt = AV_PIX_FMT_GBRP16;
             f->use32bit = 1;
         }
+        else if (f->avctx->bits_per_raw_sample == 16 && f->transparency) {
+            f->avctx->pix_fmt = AV_PIX_FMT_GBRAP16;
+            f->use32bit = 1;
+        }
     } else {
         av_log(f->avctx, AV_LOG_ERROR, "colorspace not supported\n");
         return AVERROR(ENOSYS);
@@ -717,7 +723,7 @@ static int read_header(FFV1Context *f)
     } else {
         const uint8_t *p = c->bytestream_end;
         for (f->slice_count = 0;
-             f->slice_count < MAX_SLICES && 3 < p - c->bytestream_start;
+             f->slice_count < MAX_SLICES && 3 + 5*!!f->ec < p - c->bytestream_start;
              f->slice_count++) {
             int trailer = 3 + 5*!!f->ec;
             int size = AV_RB24(p-trailer);
