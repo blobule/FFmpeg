@@ -1061,7 +1061,7 @@ int ff_hevc_parse_sps(HEVCSPS *sps, GetBitContext *gb, unsigned int *sps_id,
     }
 
     sps->nb_st_rps = get_ue_golomb_long(gb);
-    if (sps->nb_st_rps > HEVC_MAX_SHORT_TERM_RPS_COUNT) {
+    if (sps->nb_st_rps > HEVC_MAX_SHORT_TERM_REF_PIC_SETS) {
         av_log(avctx, AV_LOG_ERROR, "Too many short term RPS: %d.\n",
                sps->nb_st_rps);
         return AVERROR_INVALIDDATA;
@@ -1075,8 +1075,8 @@ int ff_hevc_parse_sps(HEVCSPS *sps, GetBitContext *gb, unsigned int *sps_id,
     sps->long_term_ref_pics_present_flag = get_bits1(gb);
     if (sps->long_term_ref_pics_present_flag) {
         sps->num_long_term_ref_pics_sps = get_ue_golomb_long(gb);
-        if (sps->num_long_term_ref_pics_sps > 31U) {
-            av_log(avctx, AV_LOG_ERROR, "num_long_term_ref_pics_sps %d is out of range.\n",
+        if (sps->num_long_term_ref_pics_sps > HEVC_MAX_LONG_TERM_REF_PICS) {
+            av_log(avctx, AV_LOG_ERROR, "Too many long term ref pics: %d.\n",
                    sps->num_long_term_ref_pics_sps);
             return AVERROR_INVALIDDATA;
         }
@@ -1323,6 +1323,11 @@ static int pps_range_extensions(GetBitContext *gb, AVCodecContext *avctx,
     }
     pps->log2_sao_offset_scale_luma = get_ue_golomb_long(gb);
     pps->log2_sao_offset_scale_chroma = get_ue_golomb_long(gb);
+
+    if (   pps->log2_sao_offset_scale_luma   > FFMAX(sps->bit_depth        - 10, 0)
+        || pps->log2_sao_offset_scale_chroma > FFMAX(sps->bit_depth_chroma - 10, 0)
+    )
+        return AVERROR_INVALIDDATA;
 
     return(0);
 }
@@ -1702,6 +1707,22 @@ int ff_hevc_decode_nal_pps(GetBitContext *gb, AVCodecContext *avctx,
 err:
     av_buffer_unref(&pps_buf);
     return ret;
+}
+
+void ff_hevc_ps_uninit(HEVCParamSets *ps)
+{
+    int i;
+
+    for (i = 0; i < FF_ARRAY_ELEMS(ps->vps_list); i++)
+        av_buffer_unref(&ps->vps_list[i]);
+    for (i = 0; i < FF_ARRAY_ELEMS(ps->sps_list); i++)
+        av_buffer_unref(&ps->sps_list[i]);
+    for (i = 0; i < FF_ARRAY_ELEMS(ps->pps_list); i++)
+        av_buffer_unref(&ps->pps_list[i]);
+
+    ps->sps = NULL;
+    ps->pps = NULL;
+    ps->vps = NULL;
 }
 
 int ff_hevc_compute_poc(const HEVCSPS *sps, int pocTid0, int poc_lsb, int nal_unit_type)
