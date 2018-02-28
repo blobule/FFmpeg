@@ -51,19 +51,24 @@ typedef struct Remap2Context {
     int nb_components;
     int step;
     FFFrameSync fs;
+    float cx;
+    float cy;
+    float radius;
 
     void (*remap)(struct Remap2Context *s, const AVFrame *in, const AVFrame *map, AVFrame *out);
 } Remap2Context;
 
-/*
+
 #define OFFSET(x) offsetof(Remap2Context, x)
 #define FLAGS AV_OPT_FLAG_FILTERING_PARAM|AV_OPT_FLAG_VIDEO_PARAM
 
 static const AVOption remap2_options[] = {
+    { "cx", "center x offset", OFFSET(cx), AV_OPT_TYPE_FLOAT, {.dbl=-1}, -1, 10000, FLAGS},
+    { "cy", "center y offset", OFFSET(cy), AV_OPT_TYPE_FLOAT, {.dbl=-1}, -1, 10000, FLAGS},
+    { "r", "radius", OFFSET(radius), AV_OPT_TYPE_FLOAT, {.dbl=-1}, -1, 10000, FLAGS},
     { NULL }
 };
 AVFILTER_DEFINE_CLASS(remap2);
-*/
 
 
 static int query_formats(AVFilterContext *ctx)
@@ -127,6 +132,14 @@ static void remap2_planar_interpolate(Remap2Context *s, const AVFrame *in,
     const int linesize = map->linesize[0]/2;
     int x , y, plane;
 
+    int def=0;
+    if( s->cx<0 ) {def=1;s->cx=in->width/2.0;}
+    if( s->cy<0 ) {def=1;s->cy=in->height/2.0;}
+    if( s->radius<0 ) {def=1;s->radius=(in->width<in->height?in->width:in->height)/2.0;}
+    if( def ) {
+        printf("*** Parametres par defaut: cx=%5f  cy=%5f  r=%5f\n\n",s->cx,s->cy,s->radius);
+    }
+
 
     //printf("nbplane=%d linesize=%d xmap=0x%08lx\n",s->nb_planes,linesize,xmap);
 
@@ -146,15 +159,22 @@ static void remap2_planar_interpolate(Remap2Context *s, const AVFrame *in,
         int a00,a10,a01,a11;
 
         for (y = 0; y < out->height; y++) {
-            uint16_t *q=xmap;
+            const uint16_t *q=xmap;
             for (x = 0; x < out->width; x++,q+=3) {
+                int ipx,ipy;
+                float fpx,fpy;
                 //if( xmap[x]==0 || ymap[x]==0 ) { dst[x]=0;continue; }
                 // subpixel position
-                float px=(float)q[0]/65536.0*in->width;
-                float py=(float)q[1]/65536.0*in->height;
+                float px=(float)q[0]/65536.0*(2.0*s->radius)+s->cx-s->radius;
+                float py=(float)q[1]/65536.0*(2.0*s->radius)+s->cy-s->radius;
+                //float px=(float)q[0]/65536.0*in->width+s->cx;
+                //float py=(float)q[1]/65536.0*in->height+s->cy;
                 float pm=(float)q[2]/65536.0; // mask: 0 a 1
                 //printf("xy=%4d,%4d -> (%12.6f, %12.6f) inw=%4d inh=%4d\n",x,y,px,py,in->width,in->height);
                 //printf("xy=%4d,%4d -> (%6d,%6d,%6d) inw=%4d inh=%4d ls=%d\n",x,y,q[0],q[1],q[2],in->width,in->height,linesize);
+                // a cause de cx,cy, on peut avoir des points en dehors de l'image
+                if( px<0 ) px=0; else if( px>=in->width ) px=in->width-1;
+                if( py<0 ) py=0; else if( py>=in->height ) py=in->height-1;
                
                 // test si le masque est trop haut, alors, on donne du noir
                 if( pm>0.15 ) {
@@ -166,11 +186,11 @@ static void remap2_planar_interpolate(Remap2Context *s, const AVFrame *in,
                 //
                 //float pb=(float)q[2]; // mask
                 // integer part
-                int ipx=(int)px;
-                int ipy=(int)py;
+                ipx=(int)px;
+                ipy=(int)py;
                 // fractional part
-                float fpx=px-ipx;
-                float fpy=py-ipy;
+                fpx=px-ipx;
+                fpy=py-ipy;
                 // interpolation bilineaire
                 // AUCUN CHECK de depassement!!!
                 a00=a01=a10=a11=src[ipy*slinesize+ipx];
@@ -349,6 +369,6 @@ AVFilter ff_vf_remap2 = {
     .activate      = activate,
     .inputs        = remap2_inputs,
     .outputs       = remap2_outputs,
-    //.priv_class    = &remap2_class,
+    .priv_class    = &remap2_class,
     .flags         = AVFILTER_FLAG_SUPPORT_TIMELINE_GENERIC,
 };
