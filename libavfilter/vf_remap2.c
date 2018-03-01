@@ -135,11 +135,11 @@ static void remap2_planar_interpolate(Remap2Context *s, const AVFrame *in,
     int def=1;
     if( s->cx<0 && s->cy<0 && s->radius<0 ) def=0;
     if( def ) {
-        def=0;
-        if( s->cx<0 ) {def=1;s->cx=in->width/2.0;}
-        if( s->cy<0 ) {def=1;s->cy=in->height/2.0;}
-        if( s->radius<0 ) {def=1;s->radius=(in->width<in->height?in->width:in->height)/2.0;}
-        if( def ) printf("*** Parametres par defaut: cx=%5f  cy=%5f  r=%5f\n\n",s->cx,s->cy,s->radius);
+        int t=0;
+        if( s->cx<0 ) {t=1;s->cx=in->width/2.0;}
+        if( s->cy<0 ) {t=1;s->cy=in->height/2.0;}
+        if( s->radius<0 ) {t=1;s->radius=(in->width<in->height?in->width:in->height)/2.0;}
+        if( t ) printf("*** Parametres par defaut: cx=%5f  cy=%5f  r=%5f\n\n",s->cx,s->cy,s->radius);
     }
 
 
@@ -166,6 +166,7 @@ static void remap2_planar_interpolate(Remap2Context *s, const AVFrame *in,
                 int ipx,ipy;
                 float fpx,fpy;
                 float px,py;
+                float pm;
                 //if( xmap[x]==0 || ymap[x]==0 ) { dst[x]=0;continue; }
                 // subpixel position
                 if( def ) {
@@ -177,7 +178,7 @@ static void remap2_planar_interpolate(Remap2Context *s, const AVFrame *in,
                     px=(float)q[0]/65536.0*in->width;
                     py=(float)q[1]/65536.0*in->height;
                 }
-                float pm=(float)q[2]/65536.0; // mask: 0 a 1
+                pm=(float)q[2]/65536.0; // mask: 0 a 1
                 //printf("xy=%4d,%4d -> (%12.6f, %12.6f) inw=%4d inh=%4d\n",x,y,px,py,in->width,in->height);
                 //printf("xy=%4d,%4d -> (%6d,%6d,%6d) inw=%4d inh=%4d ls=%d\n",x,y,q[0],q[1],q[2],in->width,in->height,linesize);
                 // a cause de cx,cy, on peut avoir des points en dehors de l'image
